@@ -585,6 +585,19 @@ function buildQuestionIntent(persona, topic, question) {
 }
 
 function detectFollowupFocus(q) {
+  if (
+    hasAny(q, [
+      "what they expected",
+      "what was expected",
+      "what was delivered",
+      "how did they not match",
+      "did not match",
+      "didn't match",
+      "mismatch",
+      "expected and what was delivered",
+    ])
+  )
+    return "mismatch";
   if (hasAny(q, ["what was the problem", "actual problem", "trying to solve", "root cause"])) return "problem";
   if (hasAny(q, ["what did you do", "how did you", "investigate", "what action"])) return "action";
   if (
@@ -668,7 +681,12 @@ function applyModeVoice(persona, intent, response) {
   if (intent.mode === "challenging" && !intent.requiresExample) {
     out = `${out} ${challengingTail(persona.id)}`.trim();
   }
-  if (intent.mode === "cooperative" && intent.requiresExample && !/\bwhat i learned|learned\b/i.test(out)) {
+  if (
+    intent.mode === "cooperative" &&
+    intent.requiresExample &&
+    intent.followupFocus === "none" &&
+    !/\bwhat i learned|learned\b/i.test(out)
+  ) {
     out = `${out} What I learned from that was to make expectations explicit earlier.`.trim();
   }
   return out;
@@ -707,7 +725,13 @@ function expandNonExampleAnswer(personaId, intent, base) {
   if (!hasAny(q, ["why", "how", "decision", "challenge", "tradeoff", "motivation"])) return base;
 
   const detail = buildPersonaExample(personaId, intent.exampleTopic, Math.max(1, intent.detailLevel - 1));
-  const flavor = buildRoleFlavor(intent.discipline, intent.followupFocus, intent.detailLevel, intent.exampleTopic);
+  const flavor = buildRoleFlavor(
+    intent.discipline,
+    intent.followupFocus,
+    intent.detailLevel,
+    intent.exampleTopic,
+    intent.question
+  );
   if (!detail || base.toLowerCase().includes(detail.toLowerCase())) return base;
   if (isTooThin(base)) return `${base} ${detail} ${flavor}`.trim();
   return base;
@@ -717,7 +741,13 @@ function buildContextualExample(personaId, intent) {
   const context = buildPersonaExample(personaId, intent.exampleTopic, 1);
   const action = buildPersonaExample(personaId, intent.exampleTopic, 2);
   const result = buildPersonaExample(personaId, intent.exampleTopic, 3);
-  const flavor = buildRoleFlavor(intent.discipline, intent.followupFocus, intent.detailLevel, intent.exampleTopic);
+  const flavor = buildRoleFlavor(
+    intent.discipline,
+    intent.followupFocus,
+    intent.detailLevel,
+    intent.exampleTopic,
+    intent.question
+  );
 
   const mode = intent.mode;
   const detail = intent.detailLevel;
@@ -735,6 +765,9 @@ function buildContextualExample(personaId, intent) {
   if (intent.followupFocus === "result") {
     return [action, result, flavor].filter(Boolean).join(" ");
   }
+  if (intent.followupFocus === "mismatch") {
+    return [buildMismatchDetail(intent.discipline)].filter(Boolean).join(" ");
+  }
 
   if (mode === "challenging") {
     return [context, detail >= 2 ? action : "", flavor].filter(Boolean).join(" ");
@@ -750,9 +783,28 @@ function isTooThin(text) {
   return words < 20;
 }
 
-function buildRoleFlavor(discipline, focus, level, topic) {
+function buildMismatchDetail(discipline) {
+  if (discipline === "supply_chain") {
+    return "They expected full quantity delivery by the committed date, but what was delivered was a partial shipment two days late with several critical SKUs backordered.";
+  }
+  if (discipline === "software_development") {
+    return "They expected the full workflow, including validation and reporting, but what was delivered only covered the core path and missed key edge-case handling.";
+  }
+  if (discipline === "supervising") {
+    return "They expected complete shift coverage with clear escalation notes, but what was delivered was incomplete handoff and inconsistent documentation.";
+  }
+  if (discipline === "sales") {
+    return "They expected a finalized proposal with pricing terms and implementation timeline, but what was delivered was a draft missing commercial terms and delivery milestones.";
+  }
+  return "They expected one outcome, but what was delivered did not match scope and timing commitments.";
+}
+
+function buildRoleFlavor(discipline, focus, level, topic, question) {
   const profile = getDisciplineProfile(discipline);
   if (!profile) return "";
+  const q = (question || "").toLowerCase();
+  const metricAsked = hasAny(q, ["kpi", "metric", "outcome", "performance", "cost", "rate", "result"]);
+  const mismatchAsked = hasAny(q, ["expected", "delivered", "mismatch", "did not match", "didn't match"]);
 
   const challenge = pickOne(profile.challenges);
   const decision = pickOne(profile.decisions);
@@ -761,14 +813,18 @@ function buildRoleFlavor(discipline, focus, level, topic) {
   const term = pickOne(profile.vocabulary);
 
   if (focus === "problem") {
+    if (!metricAsked) return "";
     return `The hardest part was handling ${challenge} without losing service quality.`;
   }
   if (focus === "action") {
+    if (!metricAsked) return "";
     return `I made that call based on ${decision} and the constraints we had in that ${project}.`;
   }
   if (focus === "result") {
+    if (!metricAsked) return "";
     return `We tracked the improvement through ${kpi}, which showed the change was sustainable.`;
   }
+  if (mismatchAsked) return "";
 
   if (level >= 3) {
     return `It was part of a ${project}, and I kept the team focused on ${term} while protecting performance outcomes.`;
