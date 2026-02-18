@@ -250,6 +250,9 @@ const state = {
     lastExampleTopic: "",
     lastFollowupRequest: "",
     recentResponses: [],
+    substantiveQuestionCount: 0,
+    firstAnswerSentences: [],
+    priorAnswerSentences: [],
   },
   evaluator: {
     sources: "",
@@ -317,6 +320,7 @@ function bindEvents() {
     }
 
     const topic = classifyTopic(question);
+    registerQuestionStage(topic);
     incrementProbe(topic);
 
     const response = buildResponse(getPersona(), topic, question);
@@ -400,6 +404,9 @@ function resetSession() {
     lastExampleTopic: "",
     lastFollowupRequest: "",
     recentResponses: [],
+    substantiveQuestionCount: 0,
+    firstAnswerSentences: [],
+    priorAnswerSentences: [],
   };
   renderLog();
 }
@@ -531,8 +538,41 @@ function buildResponse(persona, topic, question) {
     const fallback = buildPersonaExample(persona.id, fallbackTopic, 2) || "I can share a concrete example if you want.";
     response = `Yes. One relevant example is this: ${fallback}`;
   }
+  response = applyStageResponsePolicy(response, topic);
   rememberResponse(intent, response);
   return response;
+}
+
+function registerQuestionStage(topic) {
+  if (topic === "smalltalk") return;
+  state.memory.substantiveQuestionCount += 1;
+}
+
+function applyStageResponsePolicy(response, topic) {
+  if (topic === "smalltalk") return response;
+
+  const stage = state.memory.substantiveQuestionCount;
+  let sentences = splitSentences(response);
+  if (!sentences.length) return response;
+
+  if (stage === 1) {
+    sentences = sentences.slice(0, 2);
+  } else if (stage === 2) {
+    const blocked = new Set(state.memory.firstAnswerSentences);
+    sentences = sentences.filter((s) => !blocked.has(normalizeSentence(s)));
+    if (!sentences.length) {
+      sentences = splitSentences(response).slice(0, 4);
+    }
+    sentences = sentences.slice(0, 4);
+  } else {
+    const blocked = new Set(state.memory.priorAnswerSentences);
+    sentences = sentences.filter((s) => !blocked.has(normalizeSentence(s)));
+    if (!sentences.length) {
+      sentences = splitSentences(response);
+    }
+  }
+
+  return sentences.join(" ").trim();
 }
 
 function buildQuestionIntent(persona, topic, question) {
@@ -708,6 +748,15 @@ function rememberResponse(intent, response) {
   state.memory.lastFollowupRequest = intent.followupFocus;
   state.memory.recentResponses.unshift(normalizeForRepeat(response));
   state.memory.recentResponses = state.memory.recentResponses.slice(0, 8);
+
+  if (intent.topic === "smalltalk") return;
+
+  const normalizedSentences = splitSentences(response).map(normalizeSentence).filter(Boolean);
+  if (state.memory.substantiveQuestionCount === 1) {
+    state.memory.firstAnswerSentences = normalizedSentences.slice();
+  }
+  state.memory.priorAnswerSentences.push(...normalizedSentences);
+  state.memory.priorAnswerSentences = state.memory.priorAnswerSentences.slice(-80);
 }
 
 function isLikelyRepeat(response) {
@@ -717,6 +766,21 @@ function isLikelyRepeat(response) {
 
 function normalizeForRepeat(text) {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s{2,}/g, " ").trim();
+}
+
+function splitSentences(text) {
+  return (text || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeSentence(text) {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function expandNonExampleAnswer(personaId, intent, base) {
