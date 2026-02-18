@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interview Persona Trainer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Interview Persona Trainer</h1>
+      <p>Practice your interviewer probing with realistic candidate personas.</p>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Persona</h2>
+        <label for="personaSelect">Active persona</label>
+        <select id="personaSelect"></select>
+
+        <div hidden>
+          <label for="globalRules">Global system instruction layer</label>
+          <textarea id="globalRules" rows="6" readonly></textarea>
+
+          <label for="personaSummary">Persona summary</label>
+          <textarea id="personaSummary" rows="12" readonly></textarea>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Session</h2>
+        <div class="row">
+          <div>
+            <label for="interviewMode">Interview mode</label>
+            <select id="interviewMode">
+              <option value="cooperative">Cooperative</option>
+              <option value="realistic" selected>Realistic</option>
+              <option value="challenging">Challenging</option>
+            </select>
+          </div>
+          <div>
+            <label for="disciplineSelect">Discipline</label>
+            <select id="disciplineSelect">
+              <option value="supply_chain">Supply Chain</option>
+              <option value="software_development" selected>Software Development</option>
+              <option value="supervising">Supervising</option>
+              <option value="sales">Sales</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="split">
+          <button id="askQuestionBtn">Ask Question</button>
+          <button id="resetSessionBtn">Reset Session</button>
+        </div>
+
+        <label for="questionInput">Your interview question</label>
+        <textarea
+          id="questionInput"
+          rows="4"
+          placeholder="Example: Why are you considering leaving your current role?"
+        ></textarea>
+
+        <h3>Candidate response</h3>
+        <div class="prompt" id="responseBox">Ask a question to begin the simulation.</div>
+
+        <h3>Probe hint</h3>
+        <div class="prompt" id="probeHintBox">Hints appear after each response.</div>
+
+        <h3>Session log</h3>
+        <ul id="sessionLog"></ul>
+      </section>
+
+      <section class="card full">
+        <h2>Interviewer Assessment (Isolated)</h2>
+        <p class="note">
+          This rubric context is isolated from persona simulation and never passed into candidate response logic.
+        </p>
+
+        <label for="rubricSources">Reference links (optional, one per line)</label>
+        <textarea id="rubricSources" rows="3" placeholder="https://example.com/rubric"></textarea>
+
+        <label for="rubricInput">Assessment criteria / rubric</label>
+        <textarea
+          id="rubricInput"
+          rows="7"
+          placeholder="Paste interviewer evaluation criteria here. This is only used by the evaluator."
+        ></textarea>
+
+        <div class="split">
+          <button id="runAssessmentBtn">Run Assessment</button>
+          <button id="clearAssessmentBtn">Clear Assessment</button>
+        </div>
+        <button id="exportSessionBtn">Export Session</button>
+
+        <h3>Assessment output</h3>
+        <div class="prompt" id="assessmentBox">
+          Add at least one interview question, then run assessment.
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
