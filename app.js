@@ -242,6 +242,8 @@ const state = {
   activePersonaId: personas[0].id,
   interviewMode: "realistic",
   discipline: "software_development",
+  llmEnabled: true,
+  llmAvailable: false,
   log: [],
   probes: {},
   transcript: [],
@@ -270,6 +272,7 @@ const el = {
   questionInput: document.getElementById("questionInput"),
   askQuestionBtn: document.getElementById("askQuestionBtn"),
   resetSessionBtn: document.getElementById("resetSessionBtn"),
+  llmStatus: document.getElementById("llmStatus"),
   responseBox: document.getElementById("responseBox"),
   probeHintBox: document.getElementById("probeHintBox"),
   sessionLog: document.getElementById("sessionLog"),
@@ -292,6 +295,8 @@ function init() {
   el.rubricSources.value = defaultAssessmentReferences.join("\n");
   bindEvents();
   el.probeHintBox.textContent = modeSummary();
+  renderLLMStatus();
+  checkLLMHealth();
 }
 
 function bindEvents() {
@@ -312,7 +317,14 @@ function bindEvents() {
     el.probeHintBox.textContent = modeSummary();
   });
 
-  el.askQuestionBtn.addEventListener("click", () => {
+  el.questionInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      el.askQuestionBtn.click();
+    }
+  });
+
+  el.askQuestionBtn.addEventListener("click", async () => {
     const question = el.questionInput.value.trim();
     if (!question) {
       el.responseBox.textContent = "Enter an interview question first.";
@@ -322,8 +334,7 @@ function bindEvents() {
     const topic = classifyTopic(question);
     registerQuestionStage(topic);
     incrementProbe(topic);
-
-    const response = buildResponse(getPersona(), topic, question);
+    const response = await buildResponseWithLLMFallback(getPersona(), topic, question);
     const hint = getProbeHint(getPersona(), topic);
 
     el.responseBox.textContent = response;
@@ -353,8 +364,8 @@ function bindEvents() {
     el.probeHintBox.textContent = modeSummary();
   });
 
-  el.runAssessmentBtn.addEventListener("click", () => {
-    runAssessment();
+  el.runAssessmentBtn.addEventListener("click", async () => {
+    await runAssessment();
   });
 
   el.clearAssessmentBtn.addEventListener("click", () => {
@@ -507,6 +518,77 @@ function probeLevel(topic, question) {
 function getProbeHint(persona, topic) {
   const baseHint = persona.probeHints[topic] || persona.probeHints.default;
   return `${baseHint}\n\nMode: ${modeSummary()}`;
+}
+
+async function checkLLMHealth() {
+  try {
+    const res = await fetch("/api/health");
+    if (!res.ok) {
+      state.llmAvailable = false;
+      renderLLMStatus();
+      return;
+    }
+    const data = await res.json();
+    state.llmAvailable = Boolean(data.ok && data.openai_configured);
+    renderLLMStatus();
+  } catch {
+    state.llmAvailable = false;
+    renderLLMStatus();
+  }
+}
+
+async function buildResponseWithLLMFallback(persona, topic, question) {
+  if (state.llmEnabled && !state.llmAvailable) {
+    await checkLLMHealth();
+  }
+  if (state.llmEnabled && state.llmAvailable) {
+    try {
+      const llmResponse = await requestPersonaResponse(persona, topic, question);
+      const cleaned = enforceGlobalLayer(llmResponse || "");
+      const staged = applyStageResponsePolicy(cleaned, topic);
+      if (staged.trim()) {
+        rememberExternalResponse(topic, question, staged);
+        return staged;
+      }
+    } catch {
+      state.llmAvailable = false;
+      renderLLMStatus();
+      // Fall through to local engine.
+    }
+  }
+  return buildResponse(persona, topic, question);
+}
+
+async function requestPersonaResponse(persona, topic, question) {
+  const transcript = state.transcript.slice(-16);
+  const stage = state.memory.substantiveQuestionCount;
+  const disciplineProfile = getDisciplineProfile(state.discipline);
+  const res = await fetch("/api/persona-response", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      persona,
+      topic,
+      question,
+      mode: state.interviewMode,
+      discipline: state.discipline,
+      disciplineProfile,
+      stage,
+      transcript,
+    }),
+  });
+  if (!res.ok) throw new Error("persona API failed");
+  const data = await res.json();
+  return data.response || "";
+}
+
+function rememberExternalResponse(topic, question, response) {
+  const intent = {
+    topic,
+    exampleTopic: resolveExampleTopic(topic, question),
+    followupFocus: detectFollowupFocus(question.toLowerCase()),
+  };
+  rememberResponse(intent, response);
 }
 
 function buildResponse(persona, topic, question) {
@@ -1491,7 +1573,10 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function runAssessment() {
+async function runAssessment() {
+  if (state.llmEnabled && !state.llmAvailable) {
+    await checkLLMHealth();
+  }
   if (!state.transcript.some((t) => t.role === "interviewer")) {
     el.assessmentBox.textContent = "No interview questions yet. Ask at least one question first.";
     return;
@@ -1500,9 +1585,43 @@ function runAssessment() {
   state.evaluator.sources = el.rubricSources.value.trim();
   state.evaluator.rubric = el.rubricInput.value.trim();
 
-  const report = buildInterviewerReport(state.transcript, state.evaluator.rubric, state.evaluator.sources);
+  let report = "";
+  if (state.llmEnabled && state.llmAvailable) {
+    try {
+      report = await requestAssessmentResponse(state.transcript, state.evaluator.rubric, state.evaluator.sources);
+    } catch {
+      state.llmAvailable = false;
+      renderLLMStatus();
+      report = "";
+    }
+  }
+  if (!report) {
+    report = buildInterviewerReport(state.transcript, state.evaluator.rubric, state.evaluator.sources);
+  }
   state.evaluator.lastReport = report;
   el.assessmentBox.textContent = report;
+}
+
+function renderLLMStatus() {
+  if (!el.llmStatus) return;
+  if (state.llmEnabled && state.llmAvailable) {
+    el.llmStatus.textContent = "LLM: Connected";
+    el.llmStatus.className = "status-badge status-ok";
+    return;
+  }
+  el.llmStatus.textContent = "Fallback: Local engine";
+  el.llmStatus.className = "status-badge status-fallback";
+}
+
+async function requestAssessmentResponse(transcript, rubric, sources) {
+  const res = await fetch("/api/assessment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transcript, rubric, sources }),
+  });
+  if (!res.ok) throw new Error("assessment API failed");
+  const data = await res.json();
+  return data.assessment || "";
 }
 
 function exportSession() {

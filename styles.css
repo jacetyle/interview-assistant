@@ -43,6 +43,27 @@ p {
   color: #4b463f;
 }
 
+.status-badge {
+  display: inline-block;
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: #efe7d8;
+  color: #3f3527;
+}
+
+.status-ok {
+  background: #dff3e7;
+  color: #1f5e3e;
+}
+
+.status-fallback {
+  background: #f9eadb;
+  color: #7c4b1b;
+}
+
 .grid {
   max-width: 1200px;
   margin: 0 auto;

@@ -40,7 +40,25 @@ A lightweight browser app to practice interviewing by questioning four simulated
   - downloads a markdown file with conversation transcript and latest assessment output
 
 ## Run
+### Option A: Basic local mode (no API)
 Open `/Users/zachwells/Documents/New project 2/index.html` in a browser.
+
+### Option B: LLM mode (recommended)
+Run from `/Users/zachwells/Documents/New project 2`:
+
+```bash
+export OPENAI_API_KEY="your_api_key_here"
+node server.js
+```
+
+Then open:
+`http://127.0.0.1:3000`
+
+Optional model override:
+
+```bash
+export OPENAI_MODEL="gpt-4.1-mini"
+```
 
 ## Share Publicly (GitHub Pages)
 Run these commands from `/Users/zachwells/Documents/New project 2`:
